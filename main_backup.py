@@ -10,29 +10,57 @@ from PIL import Image
 import logging
 import os
 import uuid
-import numpy as np
 from dotenv import load_dotenv
 
-# Load environment variables and configure logging
+# Load environment variables
 load_dotenv()
+
+# Configure logging FIRST
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# from mediapipe_service import MediaPipeService  # Removed - Perfect Corp handles face detection
+try:
+    from mask_generator import MaskGenerator
+    mask_generator = MaskGenerator()
+    MASK_GENERATOR_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"MaskGenerator not available (likely missing graphics libs): {e}")
+    mask_generator = None
+    MASK_GENERATOR_AVAILABLE = False
+
+try:
+    from color_transform_service import ColorTransformService
+    color_transform_service = ColorTransformService()
+    COLOR_TRANSFORM_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"ColorTransformService not available (likely missing graphics libs): {e}")
+    color_transform_service = None
+    COLOR_TRANSFORM_AVAILABLE = False
+
 from replicate_client import ReplicateClient
 from perfect_corp_service import PerfectCorpService
-
-# Simple image processing function (no cv2 needed)
-def process_image(image_data: bytes, max_size: int = 1024) -> np.ndarray:
-    """Process image data into numpy array for Perfect Corp API"""
-    try:
+try:
+    from utils import process_image, encode_image_base64
+    UTILS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Utils not available (likely missing graphics libs): {e}")
+    UTILS_AVAILABLE = False
+    
+    # Fallback functions when cv2 is not available
+    def process_image(image_data: bytes, max_size: int = 1024):
+        """Fallback image processing without cv2"""
+        from PIL import Image
+        import io
+        import numpy as np
+        
         image_stream = io.BytesIO(image_data)
         image = Image.open(image_stream)
         
-        # Convert to RGB if needed
         if image.mode != 'RGB':
             image = image.convert('RGB')
         
-        # Resize if too large
+        # Resize if needed
         width, height = image.size
         if max(width, height) > max_size:
             if width > height:
@@ -42,14 +70,27 @@ def process_image(image_data: bytes, max_size: int = 1024) -> np.ndarray:
                 new_height = max_size
                 new_width = int((width * max_size) / height)
             image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
         
-        # Return as numpy array (RGB format)
+        # Convert to numpy array (RGB format instead of BGR)
         return np.array(image)
+    
+    def encode_image_base64(image_data: bytes, format: str = "JPEG") -> str:
+        """Fallback image encoding without cv2"""
+        from PIL import Image
+        import base64
+        import io
         
-    except Exception as e:
-        logger.error(f"Error processing image: {str(e)}")
-        raise ValueError(f"Invalid image data: {str(e)}")
+        image = Image.open(io.BytesIO(image_data))
+        if format.upper() == "JPEG" and image.mode != "RGB":
+            image = image.convert("RGB")
+        
+        buffer = io.BytesIO()
+        image.save(buffer, format=format.upper())
+        buffer.seek(0)
+        
+        base64_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        mime_type = f"image/{format.lower()}"
+        return f"data:{mime_type};base64,{base64_string}"
 
 # Check for required environment variables
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
@@ -58,36 +99,40 @@ if not REPLICATE_API_KEY or REPLICATE_API_KEY == "your-replicate-api-key-here":
 
 app = FastAPI(title="Beauty Guide Backend", version="1.0.0")
 
-# Create uploads directory
+# Create uploads directory if it doesn't exist
 UPLOADS_DIR = "uploads"
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 
-# Mount static files
+# Mount static files to serve uploaded images
 app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
-# Configure CORS
+# Configure CORS for React Native
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # In production, specify your React Native app's URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Initialize services
+# mediapipe_service = MediaPipeService()  # Removed - Perfect Corp handles face detection
+# mask_generator and color_transform_service already initialized above conditionally
 replicate_client = ReplicateClient()
 
-# Initialize Perfect Corp service
+# Initialize Perfect Corp service with credentials from environment
 PERFECT_CORP_API_KEY = os.getenv("PERFECT_CORP_API_KEY", "sk-uRsxdXHx6gluQJYHRUOKqQRxlv9c2znmbMVmze3s6HAHLCGjr2UP-TDG-VzEqcT0")
 PERFECT_CORP_SECRET_KEY = os.getenv("PERFECT_CORP_SECRET_KEY", "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDMjLQL0qPOfPLLWAWHhkegp93WhgcR1FwZcJQBWHqPSZTN23CMQ12KLS7oukmN5VYn3EiqZ+q2efG6CdCiLS52KZffio0aQchRHJdFcIz2UVF1vgA1V1ug9pHWoBGPVOEQLNwy3xddKce8E2xQbyNLbAu73IOAzuO8yStOHe4PzwIDAQAB")
 perfect_corp_service = PerfectCorpService(PERFECT_CORP_API_KEY, PERFECT_CORP_SECRET_KEY)
 
 def save_uploaded_file(image_data: bytes, original_filename: str) -> str:
     """Save uploaded file and return public URL"""
+    # Generate unique filename
     file_extension = os.path.splitext(original_filename)[1] or '.jpg'
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(UPLOADS_DIR, unique_filename)
     
+    # Save file
     with open(file_path, 'wb') as f:
         f.write(image_data)
     
@@ -97,7 +142,7 @@ def save_uploaded_file(image_data: bytes, original_filename: str) -> str:
     logger.info(f"Saved file as {file_path}, public URL: {public_url}")
     return public_url
 
-# Pydantic models
+# Pydantic models for request/response
 class MakeupSuggestion(BaseModel):
     text: str
 
@@ -106,7 +151,7 @@ class PerfectCorpEffect(BaseModel):
     color: str     # hex code like #FF7F50
     texture: str   # matte, satin, gloss, shimmer, metallic, sheer
     intensity: int # 1-100
-    placement: Optional[str] = None
+    placement: Optional[str] = None  # optional placement info
 
 class MakeupAnalysis(BaseModel):
     generalFeedback: str
@@ -114,7 +159,7 @@ class MakeupAnalysis(BaseModel):
     productRecommendations: List[str]
     techniques: List[str]
     followUpQuestion: str
-    perfectCorpEffects: Optional[List[PerfectCorpEffect]] = None
+    perfectCorpEffects: Optional[List[PerfectCorpEffect]] = None  # Backend-only structured data
 
 class GenerateAfterPhotoRequest(BaseModel):
     analysis: MakeupAnalysis
@@ -129,6 +174,7 @@ class GenerateAfterPhotoResponse(BaseModel):
 async def health_check():
     """Health check endpoint"""
     try:
+        # Test basic functionality
         import time
         return {
             "status": "healthy", 
@@ -140,13 +186,91 @@ async def health_check():
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=500, detail="Health check failed")
 
+@app.post("/analyze-landmarks", response_model=Dict)
+async def analyze_landmarks(file: UploadFile = File(...)):
+    """
+    Analyze facial landmarks from uploaded image
+    Returns landmark coordinates for debugging/testing
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Read and process image
+        image_data = await file.read()
+        image = process_image(image_data)
+        
+        # Extract landmarks
+        landmarks = mediapipe_service.detect_face_landmarks(image)
+        
+        if landmarks is None:
+            raise HTTPException(status_code=422, detail="No face detected in image")
+        
+        return {
+            "success": True,
+            "landmarks_count": len(landmarks),
+            "image_dimensions": {"width": image.shape[1], "height": image.shape[0]},
+            "landmarks": landmarks  # First 10 landmarks for preview
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing landmarks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+
+@app.post("/generate-mask", response_model=Dict)
+async def generate_mask(
+    file: UploadFile = File(...),
+    target_regions: str = Form(...)  # JSON string of target regions
+):
+    """
+    Generate mask from image and target regions
+    For testing mask generation
+    """
+    try:
+        import json
+        
+        # Parse target regions
+        regions = json.loads(target_regions)
+        
+        # Validate file
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Process image
+        image_data = await file.read()
+        image = process_image(image_data)
+        
+        # Extract landmarks
+        landmarks = mediapipe_service.detect_face_landmarks(image)
+        if landmarks is None:
+            raise HTTPException(status_code=422, detail="No face detected in image")
+        
+        # Generate mask
+        mask_base64 = mask_generator.create_mask_from_regions(
+            landmarks, regions, image.shape[1], image.shape[0]
+        )
+        
+        return {
+            "success": True,
+            "mask_base64": mask_base64,
+            "target_regions": regions
+        }
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid target_regions JSON")
+    except Exception as e:
+        logger.error(f"Error generating mask: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating mask: {str(e)}")
+
 @app.post("/generate-after-photo", response_model=GenerateAfterPhotoResponse)
 async def generate_after_photo(
     file: UploadFile = File(...),
     analysis: str = Form(...)  # JSON string of MakeupAnalysis
 ):
     """
-    Generate after photo using Perfect Corp AI Makeup VTO
+    Complete pipeline: analyze image -> generate mask -> create after photo
+    Main endpoint for React Native app
     """
     import time
     import json
@@ -154,11 +278,13 @@ async def generate_after_photo(
     start_time = time.time()
     
     try:
+        # Note: Using Perfect Corp API for professional makeup application
         logger.info("Using Perfect Corp API for professional makeup enhancement")
         
         # Parse analysis
         logger.info(f"Received analysis data: {analysis[:200]}...")
         analysis_data = json.loads(analysis)
+        logger.info(f"Parsed analysis data keys: {list(analysis_data.keys())}")
         makeup_analysis = MakeupAnalysis(**analysis_data)
         logger.info("Analysis data validation successful")
         
@@ -167,19 +293,23 @@ async def generate_after_photo(
             logger.error(f"Invalid file type: {file.content_type}")
             raise HTTPException(status_code=400, detail="File must be an image")
         
-        logger.info(f"Starting after photo generation with file: {file.filename}")
+        logger.info(f"Starting after photo generation pipeline with file: {file.filename}, type: {file.content_type}")
         
-        # Read image data
+        # Step 1: Process image
         image_data = await file.read()
         logger.info(f"Read {len(image_data)} bytes of image data")
-        
-        # Process image (minimal processing, just validation)
         image = process_image(image_data)
         logger.info(f"Processed image shape: {image.shape}")
         
-        # Apply Perfect Corp AI-driven makeup
+        logger.info("Image processed successfully")
+        
+        # Step 2: Apply Perfect Corp AI-driven makeup (handles face detection internally)
         logger.info("Applying Perfect Corp makeup based on AI analysis")
-        result = perfect_corp_service.apply_ai_driven_makeup(image_data, makeup_analysis)
+        
+        result = perfect_corp_service.apply_ai_driven_makeup(
+            image_data,
+            makeup_analysis
+        )
         
         processing_time = time.time() - start_time
         
@@ -203,6 +333,7 @@ async def generate_after_photo(
         raise HTTPException(status_code=400, detail="Invalid analysis JSON")
     except Exception as e:
         logger.error(f"Error in generate_after_photo: {str(e)}")
+        logger.error(f"Exception type: {type(e).__name__}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return GenerateAfterPhotoResponse(
@@ -229,6 +360,8 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "health": "/health",
+            "analyze_landmarks": "/analyze-landmarks",
+            "generate_mask": "/generate-mask", 
             "generate_after_photo": "/generate-after-photo",
             "perfect_corp_health": "/perfect-corp-health"
         },
