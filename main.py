@@ -63,9 +63,9 @@ app.add_middleware(
 replicate_client = ReplicateClient()
 color_transform_service = ColorTransformService()
 
-# Initialize Perfect Corp service with credentials from README
-PERFECT_CORP_API_KEY = "sk-uRsxdXHx6gluQJYHRUOKqQRxlv9c2znmbMVmze3s6HAHLCGjr2UP-TDG-VzEqcT0"
-PERFECT_CORP_SECRET_KEY = "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDMjLQL0qPOfPLLWAWHhkegp93WhgcR1FwZcJQBWHqPSZTN23CMQ12KLS7oukmN5VYn3EiqZ+q2efG6CdCiLS52KZffio0aQchRHJdFcIz2UVF1vgA1V1ug9pHWoBGPVOEQLNwy3xddKce8E2xQbyNLbAu73IOAzuO8yStOHe4PzwIDAQAB"
+# Initialize Perfect Corp service with credentials from environment
+PERFECT_CORP_API_KEY = os.getenv("PERFECT_CORP_API_KEY", "sk-uRsxdXHx6gluQJYHRUOKqQRxlv9c2znmbMVmze3s6HAHLCGjr2UP-TDG-VzEqcT0")
+PERFECT_CORP_SECRET_KEY = os.getenv("PERFECT_CORP_SECRET_KEY", "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDMjLQL0qPOfPLLWAWHhkegp93WhgcR1FwZcJQBWHqPSZTN23CMQ12KLS7oukmN5VYn3EiqZ+q2efG6CdCiLS52KZffio0aQchRHJdFcIz2UVF1vgA1V1ug9pHWoBGPVOEQLNwy3xddKce8E2xQbyNLbAu73IOAzuO8yStOHe4PzwIDAQAB")
 perfect_corp_service = PerfectCorpService(PERFECT_CORP_API_KEY, PERFECT_CORP_SECRET_KEY)
 
 def save_uploaded_file(image_data: bytes, original_filename: str) -> str:
