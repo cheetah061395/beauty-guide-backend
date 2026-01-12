@@ -29,10 +29,68 @@ except ImportError as e:
     mask_generator = None
     MASK_GENERATOR_AVAILABLE = False
 
+try:
+    from color_transform_service import ColorTransformService
+    color_transform_service = ColorTransformService()
+    COLOR_TRANSFORM_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"ColorTransformService not available (likely missing graphics libs): {e}")
+    color_transform_service = None
+    COLOR_TRANSFORM_AVAILABLE = False
+
 from replicate_client import ReplicateClient
-from color_transform_service import ColorTransformService
 from perfect_corp_service import PerfectCorpService
-from utils import process_image, encode_image_base64
+try:
+    from utils import process_image, encode_image_base64
+    UTILS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Utils not available (likely missing graphics libs): {e}")
+    UTILS_AVAILABLE = False
+    
+    # Fallback functions when cv2 is not available
+    def process_image(image_data: bytes, max_size: int = 1024):
+        """Fallback image processing without cv2"""
+        from PIL import Image
+        import io
+        import numpy as np
+        
+        image_stream = io.BytesIO(image_data)
+        image = Image.open(image_stream)
+        
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Resize if needed
+        width, height = image.size
+        if max(width, height) > max_size:
+            if width > height:
+                new_width = max_size
+                new_height = int((height * max_size) / width)
+            else:
+                new_height = max_size
+                new_width = int((width * max_size) / height)
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Convert to numpy array (RGB format instead of BGR)
+        return np.array(image)
+    
+    def encode_image_base64(image_data: bytes, format: str = "JPEG") -> str:
+        """Fallback image encoding without cv2"""
+        from PIL import Image
+        import base64
+        import io
+        
+        image = Image.open(io.BytesIO(image_data))
+        if format.upper() == "JPEG" and image.mode != "RGB":
+            image = image.convert("RGB")
+        
+        buffer = io.BytesIO()
+        image.save(buffer, format=format.upper())
+        buffer.seek(0)
+        
+        base64_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        mime_type = f"image/{format.lower()}"
+        return f"data:{mime_type};base64,{base64_string}"
 
 # Check for required environment variables
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
@@ -59,9 +117,8 @@ app.add_middleware(
 
 # Initialize services
 # mediapipe_service = MediaPipeService()  # Removed - Perfect Corp handles face detection
-# mask_generator already initialized above conditionally
+# mask_generator and color_transform_service already initialized above conditionally
 replicate_client = ReplicateClient()
-color_transform_service = ColorTransformService()
 
 # Initialize Perfect Corp service with credentials from environment
 PERFECT_CORP_API_KEY = os.getenv("PERFECT_CORP_API_KEY", "sk-uRsxdXHx6gluQJYHRUOKqQRxlv9c2znmbMVmze3s6HAHLCGjr2UP-TDG-VzEqcT0")
