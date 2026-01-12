@@ -6,6 +6,8 @@ from typing import Dict, Optional, List
 import json
 from PIL import Image
 import io
+import os
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +46,9 @@ class PerfectCorpService:
         with open(file_path, 'wb') as f:
             f.write(image_data)
         
-        # Return public URL
-        public_url = f"http://localhost:8000/uploads/{unique_filename}"
+        # Return public URL using environment variable or localhost fallback
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        public_url = f"{base_url}/uploads/{unique_filename}"
         logger.info(f"Saved image locally: {file_path}, public URL: {public_url}")
         return public_url
     

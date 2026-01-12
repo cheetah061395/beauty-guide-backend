@@ -79,8 +79,9 @@ def save_uploaded_file(image_data: bytes, original_filename: str) -> str:
     with open(file_path, 'wb') as f:
         f.write(image_data)
     
-    # Return public URL (assuming server runs on localhost:8000)
-    public_url = f"http://localhost:8000/uploads/{unique_filename}"
+    # Get base URL from environment or default to localhost
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
+    public_url = f"{base_url}/uploads/{unique_filename}"
     logger.info(f"Saved file as {file_path}, public URL: {public_url}")
     return public_url
 

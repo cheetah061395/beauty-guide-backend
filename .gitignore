@@ -40,3 +40,6 @@ uploads/
 *.jpg
 *.png
 *.jpeg
+
+# Large model files
+*.task
