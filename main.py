@@ -13,7 +13,15 @@ import uuid
 from dotenv import load_dotenv
 
 # from mediapipe_service import MediaPipeService  # Removed - Perfect Corp handles face detection
-from mask_generator import MaskGenerator
+try:
+    from mask_generator import MaskGenerator
+    mask_generator = MaskGenerator()
+    MASK_GENERATOR_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"MaskGenerator not available (likely missing graphics libs): {e}")
+    mask_generator = None
+    MASK_GENERATOR_AVAILABLE = False
+
 from replicate_client import ReplicateClient
 from color_transform_service import ColorTransformService
 from perfect_corp_service import PerfectCorpService
@@ -51,7 +59,7 @@ app.add_middleware(
 
 # Initialize services
 # mediapipe_service = MediaPipeService()  # Removed - Perfect Corp handles face detection
-mask_generator = MaskGenerator()
+# mask_generator already initialized above conditionally
 replicate_client = ReplicateClient()
 color_transform_service = ColorTransformService()
 
