@@ -107,7 +107,18 @@ class GenerateAfterPhotoResponse(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "message": "Beauty Guide Backend is running"}
+    try:
+        # Test basic functionality
+        import time
+        return {
+            "status": "healthy", 
+            "message": "Beauty Guide Backend is running",
+            "timestamp": time.time(),
+            "version": "1.0.0"
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail="Health check failed")
 
 @app.post("/analyze-landmarks", response_model=Dict)
 async def analyze_landmarks(file: UploadFile = File(...)):
