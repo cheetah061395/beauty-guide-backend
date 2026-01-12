@@ -12,6 +12,13 @@ import os
 import uuid
 from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
+
+# Configure logging FIRST
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # from mediapipe_service import MediaPipeService  # Removed - Perfect Corp handles face detection
 try:
     from mask_generator import MaskGenerator
@@ -26,13 +33,6 @@ from replicate_client import ReplicateClient
 from color_transform_service import ColorTransformService
 from perfect_corp_service import PerfectCorpService
 from utils import process_image, encode_image_base64
-
-# Load environment variables
-load_dotenv()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Check for required environment variables
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
